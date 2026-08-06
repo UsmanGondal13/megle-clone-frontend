@@ -1,0 +1,191 @@
+import { useState, useEffect, useRef } from 'react'
+
+// Public Google servers that help the two browsers find each other on the internet
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+}
+
+function App() {
+  const [messages, setMessages] = useState([])
+  const [inputValue, setInputValue] = useState('')
+  const [status, setStatus] = useState('Connecting...')
+  
+  const ws = useRef(null)
+  const localVideoRef = useRef(null)
+  const remoteVideoRef = useRef(null)
+  const peerConnectionRef = useRef(null)
+  const localStreamRef = useRef(null)
+
+  // 1. Setup Camera on Load
+  useEffect(() => {
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        localStreamRef.current = stream
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream
+        }
+      } catch (error) {
+        console.error("Error accessing camera:", error)
+        setStatus("Camera permission denied.")
+      }
+    }
+    startCamera()
+  }, [])
+
+  const createPeerConnection = () => {
+    const pc = new RTCPeerConnection(ICE_SERVERS)
+    
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStreamRef.current)
+      })
+    }
+
+    pc.ontrack = (event) => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = event.streams[0]
+      }
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && ws.current) {
+        ws.current.send(JSON.stringify({
+          type: 'webrtc_ice_candidate',
+          candidate: event.candidate
+        }))
+      }
+    }
+
+    return pc
+  }
+
+  const closeVideoCall = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close()
+      peerConnectionRef.current = null
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null
+    }
+  }
+
+  // 2. Setup WebSocket Matchmaker & WebRTC Signaling
+  useEffect(() => {
+    ws.current = new WebSocket('wss://your-render-app-name.onrender.com/ws')
+    
+    ws.current.onopen = () => {
+      setStatus("Connected! Waiting for backend to assign stranger...")
+    }
+
+    ws.current.onmessage = async (event) => {
+      const data = JSON.parse(event.data)
+      
+      if (data.type === 'system') {
+        setStatus(data.content)
+        setMessages((prev) => [...prev, `[System]: ${data.content}`])
+        
+        if (data.content === "Stranger has disconnected.") {
+          closeVideoCall()
+        }
+
+        if (data.role === 'caller') {
+          peerConnectionRef.current = createPeerConnection()
+          const offer = await peerConnectionRef.current.createOffer()
+          await peerConnectionRef.current.setLocalDescription(offer)
+          
+          ws.current.send(JSON.stringify({
+            type: 'webrtc_offer',
+            offer: offer
+          }))
+        }
+      } 
+      else if (data.type === 'chat_message') {
+        setMessages((prev) => [...prev, `${data.sender}: ${data.content}`])
+      }
+      else if (data.type === 'webrtc_offer') {
+        peerConnectionRef.current = createPeerConnection()
+        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer))
+        
+        const answer = await peerConnectionRef.current.createAnswer()
+        await peerConnectionRef.current.setLocalDescription(answer)
+        
+        ws.current.send(JSON.stringify({
+          type: 'webrtc_answer',
+          answer: answer
+        }))
+      }
+      else if (data.type === 'webrtc_answer') {
+        if (peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer))
+        }
+      }
+      else if (data.type === 'webrtc_ice_candidate') {
+        if (peerConnectionRef.current && data.candidate) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate))
+        }
+      }
+    }
+
+    ws.current.onclose = () => {
+      setStatus("Disconnected from server.")
+      closeVideoCall()
+    }
+
+    return () => {
+      if (ws.current) ws.current.close()
+    }
+  }, [])
+
+  const sendMessage = () => {
+    if (ws.current && inputValue !== '') {
+      ws.current.send(JSON.stringify({ type: 'chat_message', content: inputValue }))
+      setMessages((prev) => [...prev, `You: ${inputValue}`])
+      setInputValue('') 
+    }
+  }
+
+  const handleSkip = () => {
+    if (ws.current) {
+      ws.current.send(JSON.stringify({ type: 'skip' }))
+      setMessages([]) 
+      setStatus("Skipping... looking for someone new.")
+      closeVideoCall()
+    }
+  }
+
+  return (
+    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+      <h1>Omegle Clone Matchmaker</h1>
+      <h3 style={{ color: 'blue' }}>Status: {status}</h3>
+      
+      <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+        <div>
+          <h4>You</h4>
+          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '300px', height: '225px', backgroundColor: '#222', borderRadius: '8px' }} />
+        </div>
+        <div>
+          <h4>Stranger</h4>
+          <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '300px', height: '225px', backgroundColor: '#222', borderRadius: '8px' }} />
+        </div>
+      </div>
+
+      <div style={{ border: '1px solid #ccc', padding: '10px', height: '200px', overflowY: 'scroll', marginBottom: '10px' }}>
+        {messages.map((msg, index) => (
+          <p key={index} style={{ margin: '5px 0' }}>{msg}</p>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: '10px' }}>
+        <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Type a message..." style={{ padding: '8px', width: '250px' }} />
+        <button onClick={sendMessage} style={{ padding: '8px 20px' }}>Send</button>
+        <button onClick={handleSkip} style={{ padding: '8px 20px', backgroundColor: '#ff4444', color: 'white', border: 'none', cursor: 'pointer' }}>Next / Skip</button>
+      </div>
+    </div>
+  )
+}
+
+export default App
