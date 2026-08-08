@@ -1,10 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 
-// Public Google servers that help the two browsers find each other on the internet
+// Upgraded servers with STUN (for local connections) and TURN (for global firewalls)
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 }
 
@@ -75,6 +90,7 @@ function App() {
 
   // 2. Setup WebSocket Matchmaker & WebRTC Signaling
   useEffect(() => {
+    // USING YOUR LIVE RENDER SERVER URL
     ws.current = new WebSocket('wss://omegle-clone-backend-u5bk.onrender.com/ws')
 
     ws.current.onopen = () => {
