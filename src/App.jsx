@@ -75,8 +75,8 @@ function App() {
 
   // 2. Setup WebSocket Matchmaker & WebRTC Signaling
   useEffect(() => {
-    ws.current = new WebSocket('wss://your-render-app-name.onrender.com/ws')
-    
+    ws.current = new WebSocket('wss://omegle-clone-backend.onrender.com/ws')
+
     ws.current.onopen = () => {
       setStatus("Connected! Waiting for backend to assign stranger...")
     }
