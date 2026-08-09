@@ -26,7 +26,8 @@ const ICE_SERVERS = {
 function App() {
   const [messages, setMessages] = useState([])
   const [inputValue, setInputValue] = useState('')
-  const [status, setStatus] = useState('Connecting...')
+  const [status, setStatus] = useState('Allow camera access to connect...')
+  const [cameraReady, setCameraReady] = useState(false) // NEW: The Camera Lock
   
   const ws = useRef(null)
   const localVideoRef = useRef(null)
@@ -35,7 +36,6 @@ function App() {
   const localStreamRef = useRef(null)
   const iceCandidateQueue = useRef([])
 
-  // Helper function to empty the candidate queue once remote description is set
   const processCandidateQueue = async () => {
     while (iceCandidateQueue.current.length > 0) {
       const candidate = iceCandidateQueue.current.shift()
@@ -58,9 +58,11 @@ function App() {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream
         }
+        // ONLY unlock the server connection AFTER the camera is fully running
+        setCameraReady(true) 
       } catch (error) {
         console.error("Error accessing camera:", error)
-        setStatus("Camera permission denied.")
+        setStatus("Camera permission denied. Cannot connect to server.")
       }
     }
     startCamera()
@@ -69,7 +71,7 @@ function App() {
   const createPeerConnection = () => {
     const pc = new RTCPeerConnection(ICE_SERVERS)
     
-    // Add local tracks to peer connection
+    // The video track is now guaranteed to exist before this runs
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current)
@@ -118,8 +120,10 @@ function App() {
     iceCandidateQueue.current = []
   }
 
-  // 2. Setup WebSocket Matchmaker & WebRTC Signaling
+  // 2. Setup WebSocket (LOCKED until cameraReady is true)
   useEffect(() => {
+    if (!cameraReady) return; // Completely stops execution if camera is off
+
     ws.current = new WebSocket('wss://omegle-clone-backend-u5bk.onrender.com/ws')
 
     ws.current.onopen = () => {
@@ -157,7 +161,6 @@ function App() {
         peerConnectionRef.current = createPeerConnection()
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer))
         
-        // DRAIN QUEUE FOR CALLEE (This was missing before)
         await processCandidateQueue()
 
         const answer = await peerConnectionRef.current.createAnswer()
@@ -171,8 +174,6 @@ function App() {
       else if (data.type === 'webrtc_answer') {
         if (peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer))
-          
-          // DRAIN QUEUE FOR CALLER
           await processCandidateQueue()
         }
       }
@@ -185,7 +186,6 @@ function App() {
               console.error("Error adding direct ICE candidate:", err)
             }
           } else {
-            // Store candidate in queue if remote description isn't set yet
             iceCandidateQueue.current.push(data.candidate)
           }
         }
@@ -200,7 +200,7 @@ function App() {
     return () => {
       if (ws.current) ws.current.close()
     }
-  }, [])
+  }, [cameraReady]) // This array tells React to re-run this when cameraReady changes
 
   const sendMessage = () => {
     if (ws.current && inputValue !== '') {
