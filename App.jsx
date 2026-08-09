@@ -192,31 +192,36 @@ function App() {
   }
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>Omegle Clone Matchmaker</h1>
-      <h3 style={{ color: 'blue' }}>Status: {status}</h3>
+    <div style={{ padding: '1rem', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
+      <h1 style={{ textAlign: 'center' }}>Omegle Clone Matchmaker</h1>
+      <h3 style={{ color: 'blue', textAlign: 'center' }}>Status: {status}</h3>
       
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
-        <div>
-          <h4>You</h4>
-          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '300px', height: '225px', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
+      {/* Mobile-responsive Flexbox for Videos */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: '300px' }}>
+          <h4 style={{ margin: '0 0 10px 0' }}>You</h4>
+          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
         </div>
-        <div>
-          <h4>Stranger</h4>
-          <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '300px', height: '225px', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: '300px' }}>
+          <h4 style={{ margin: '0 0 10px 0' }}>Stranger</h4>
+          {/* Controls added here to bypass Apple's Low Power Mode */}
+          <video ref={remoteVideoRef} autoPlay playsInline controls style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
         </div>
       </div>
 
-      <div style={{ border: '1px solid #ccc', padding: '10px', height: '200px', overflowY: 'scroll', marginBottom: '10px' }}>
-        {messages.map((msg, index) => (
-          <p key={index} style={{ margin: '5px 0' }}>{msg}</p>
-        ))}
-      </div>
+      <div style={{ maxWidth: '620px', margin: '0 auto' }}>
+        <div style={{ border: '1px solid #ccc', padding: '10px', height: '200px', overflowY: 'scroll', marginBottom: '10px' }}>
+          {messages.map((msg, index) => (
+            <p key={index} style={{ margin: '5px 0' }}>{msg}</p>
+          ))}
+        </div>
 
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Type a message..." style={{ padding: '8px', width: '250px' }} />
-        <button onClick={sendMessage} style={{ padding: '8px 20px' }}>Send</button>
-        <button onClick={handleSkip} style={{ padding: '8px 20px', backgroundColor: '#ff4444', color: 'white', border: 'none', cursor: 'pointer' }}>Next / Skip</button>
+        {/* Mobile-responsive Chat Input Row */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Type a message..." style={{ padding: '8px', flex: '1', minWidth: '150px' }} />
+          <button onClick={sendMessage} style={{ padding: '8px 20px' }}>Send</button>
+          <button onClick={handleSkip} style={{ padding: '8px 20px', backgroundColor: '#ff4444', color: 'white', border: 'none', cursor: 'pointer' }}>Next / Skip</button>
+        </div>
       </div>
     </div>
   )
