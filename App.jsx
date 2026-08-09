@@ -64,6 +64,11 @@ function App() {
     pc.ontrack = (event) => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0]
+        
+        // Force the browser to play the video the second it arrives
+        remoteVideoRef.current.play().catch(error => {
+          console.error("Autoplay was blocked by the browser:", error)
+        })
       }
     }
 
@@ -194,11 +199,11 @@ function App() {
       <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
         <div>
           <h4>You</h4>
-          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '300px', height: '225px', backgroundColor: '#222', borderRadius: '8px' }} />
+          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '300px', height: '225px', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
         </div>
         <div>
           <h4>Stranger</h4>
-          <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '300px', height: '225px', backgroundColor: '#222', borderRadius: '8px' }} />
+          <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '300px', height: '225px', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
         </div>
       </div>
 
