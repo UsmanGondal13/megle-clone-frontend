@@ -4,7 +4,6 @@ const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
     {
       urls: 'turn:openrelay.metered.ca:80',
       username: 'openrelayproject',
@@ -28,6 +27,7 @@ function App() {
   const [inputValue, setInputValue] = useState('')
   const [status, setStatus] = useState('Allow camera access to connect...')
   const [cameraReady, setCameraReady] = useState(false) 
+  const [debugLogs, setDebugLogs] = useState([]) // NEW: On-screen logger
   
   const ws = useRef(null)
   const localVideoRef = useRef(null)
@@ -36,15 +36,22 @@ function App() {
   const localStreamRef = useRef(null)
   const iceCandidateQueue = useRef([])
 
+  const logDebug = (msg) => {
+    console.log(msg)
+    setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()} - ${msg}`])
+  }
+
   const processCandidateQueue = async () => {
+    logDebug(`Processing queue. Items: ${iceCandidateQueue.current.length}`)
     while (iceCandidateQueue.current.length > 0) {
       const candidate = iceCandidateQueue.current.shift()
       try {
         if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
           await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate))
+          logDebug("Successfully added queued ICE candidate")
         }
       } catch (err) {
-        console.error("Error adding queued ICE candidate:", err)
+        logDebug(`Error adding queued candidate: ${err.message}`)
       }
     }
   }
@@ -52,14 +59,16 @@ function App() {
   useEffect(() => {
     const startCamera = async () => {
       try {
+        logDebug("Requesting camera permissions...")
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         localStreamRef.current = stream
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream
         }
+        logDebug("Camera active. Unlocking server connection.")
         setCameraReady(true) 
       } catch (error) {
-        console.error("Error accessing camera:", error)
+        logDebug(`Camera Error: ${error.message}`)
         setStatus("Camera permission denied. Cannot connect to server.")
       }
     }
@@ -67,20 +76,24 @@ function App() {
   }, [])
 
   const createPeerConnection = () => {
+    logDebug("Creating new RTCPeerConnection...")
     const pc = new RTCPeerConnection(ICE_SERVERS)
     
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current)
       })
+      logDebug("Added local tracks to connection.")
     }
 
     pc.ontrack = (event) => {
-      console.log("Remote track received:", event.streams)
+      logDebug(`Received remote track! Kind: ${event.track.kind}`)
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0]
-        remoteVideoRef.current.play().catch(error => {
-          console.error("Autoplay error:", error)
+        remoteVideoRef.current.play().then(() => {
+          logDebug("Remote video playing successfully!")
+        }).catch(error => {
+          logDebug(`Autoplay blocked by browser: ${error.message}`)
         })
       }
     }
@@ -95,7 +108,7 @@ function App() {
     }
 
     pc.oniceconnectionstatechange = () => {
-      console.log("ICE Connection State:", pc.iceConnectionState)
+      logDebug(`ICE State Changed: ${pc.iceConnectionState}`)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setStatus("Connected to stranger (Video Live)!")
       } else if (pc.iceConnectionState === 'failed') {
@@ -106,11 +119,11 @@ function App() {
     return pc
   }
 
-  // FIX: Added a safety switch so we don't wipe the queue during setup
   const closeVideoCall = (clearQueue = true) => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close()
       peerConnectionRef.current = null
+      logDebug("Closed old peer connection.")
     }
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null
@@ -123,9 +136,11 @@ function App() {
   useEffect(() => {
     if (!cameraReady) return; 
 
+    logDebug("Connecting to matching server...")
     ws.current = new WebSocket('wss://omegle-clone-backend-u5bk.onrender.com/ws')
 
     ws.current.onopen = () => {
+      logDebug("Server connected.")
       setStatus("Connected! Waiting for backend to assign stranger...")
     }
 
@@ -134,14 +149,15 @@ function App() {
       
       if (data.type === 'system') {
         setStatus(data.content)
-        setMessages((prev) => [...prev, `[System]: ${data.content}`])
         
         if (data.content === "Stranger has disconnected.") {
-          closeVideoCall(true) // Full wipe on disconnect
+          logDebug("Stranger disconnected.")
+          closeVideoCall(true) 
         }
 
         if (data.role === 'caller') {
-          closeVideoCall(false) // FIX: Safely close old call, keep queue intact
+          logDebug("Role assigned: CALLER. Generating offer...")
+          closeVideoCall(false) 
           peerConnectionRef.current = createPeerConnection()
           const offer = await peerConnectionRef.current.createOffer()
           await peerConnectionRef.current.setLocalDescription(offer)
@@ -150,13 +166,15 @@ function App() {
             type: 'webrtc_offer',
             offer: offer
           }))
+          logDebug("Offer sent to stranger.")
         }
       } 
       else if (data.type === 'chat_message') {
         setMessages((prev) => [...prev, `${data.sender}: ${data.content}`])
       }
       else if (data.type === 'webrtc_offer') {
-        closeVideoCall(false) // FIX: Safely close old call, keep queue intact
+        logDebug("Received offer from stranger. Generating answer...")
+        closeVideoCall(false) 
         peerConnectionRef.current = createPeerConnection()
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer))
         
@@ -169,8 +187,10 @@ function App() {
           type: 'webrtc_answer',
           answer: answer
         }))
+        logDebug("Answer sent back.")
       }
       else if (data.type === 'webrtc_answer') {
+        logDebug("Received answer back from stranger.")
         if (peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer))
           await processCandidateQueue()
@@ -182,7 +202,7 @@ function App() {
             try {
               await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate))
             } catch (err) {
-              console.error("Error adding direct ICE candidate:", err)
+              logDebug(`Error adding direct candidate: ${err.message}`)
             }
           } else {
             iceCandidateQueue.current.push(data.candidate)
@@ -192,6 +212,7 @@ function App() {
     }
 
     ws.current.onclose = () => {
+      logDebug("Server disconnected.")
       setStatus("Disconnected from server.")
       closeVideoCall(true)
     }
@@ -214,7 +235,7 @@ function App() {
       ws.current.send(JSON.stringify({ type: 'skip' }))
       setMessages([]) 
       setStatus("Skipping... looking for someone new.")
-      closeVideoCall(true) // Full wipe on skip
+      closeVideoCall(true) 
     }
   }
 
@@ -241,10 +262,16 @@ function App() {
           ))}
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
           <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Type a message..." style={{ padding: '8px', flex: '1', minWidth: '150px' }} />
           <button onClick={sendMessage} style={{ padding: '8px 20px' }}>Send</button>
           <button onClick={handleSkip} style={{ padding: '8px 20px', backgroundColor: '#ff4444', color: 'white', border: 'none', cursor: 'pointer' }}>Next / Skip</button>
+        </div>
+
+        {/* SYSTEM DIAGNOSTICS LOGGER */}
+        <div style={{ backgroundColor: '#111', color: '#0f0', padding: '10px', fontFamily: 'monospace', fontSize: '12px', height: '200px', overflowY: 'scroll', borderRadius: '4px' }}>
+          <p style={{ margin: 0, fontWeight: 'bold', color: '#fff' }}>--- SYSTEM LOGS ---</p>
+          {debugLogs.map((log, i) => <div key={i}>{log}</div>)}
         </div>
       </div>
     </div>
