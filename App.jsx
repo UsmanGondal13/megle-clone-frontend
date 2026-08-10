@@ -27,7 +27,7 @@ function App() {
   const [messages, setMessages] = useState([])
   const [inputValue, setInputValue] = useState('')
   const [status, setStatus] = useState('Allow camera access to connect...')
-  const [cameraReady, setCameraReady] = useState(false) // NEW: The Camera Lock
+  const [cameraReady, setCameraReady] = useState(false) 
   
   const ws = useRef(null)
   const localVideoRef = useRef(null)
@@ -49,7 +49,6 @@ function App() {
     }
   }
 
-  // 1. Setup Camera on Load
   useEffect(() => {
     const startCamera = async () => {
       try {
@@ -58,7 +57,6 @@ function App() {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream
         }
-        // ONLY unlock the server connection AFTER the camera is fully running
         setCameraReady(true) 
       } catch (error) {
         console.error("Error accessing camera:", error)
@@ -71,7 +69,6 @@ function App() {
   const createPeerConnection = () => {
     const pc = new RTCPeerConnection(ICE_SERVERS)
     
-    // The video track is now guaranteed to exist before this runs
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current)
@@ -109,7 +106,8 @@ function App() {
     return pc
   }
 
-  const closeVideoCall = () => {
+  // FIX: Added a safety switch so we don't wipe the queue during setup
+  const closeVideoCall = (clearQueue = true) => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close()
       peerConnectionRef.current = null
@@ -117,12 +115,13 @@ function App() {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null
     }
-    iceCandidateQueue.current = []
+    if (clearQueue) {
+      iceCandidateQueue.current = []
+    }
   }
 
-  // 2. Setup WebSocket (LOCKED until cameraReady is true)
   useEffect(() => {
-    if (!cameraReady) return; // Completely stops execution if camera is off
+    if (!cameraReady) return; 
 
     ws.current = new WebSocket('wss://omegle-clone-backend-u5bk.onrender.com/ws')
 
@@ -138,11 +137,11 @@ function App() {
         setMessages((prev) => [...prev, `[System]: ${data.content}`])
         
         if (data.content === "Stranger has disconnected.") {
-          closeVideoCall()
+          closeVideoCall(true) // Full wipe on disconnect
         }
 
         if (data.role === 'caller') {
-          closeVideoCall()
+          closeVideoCall(false) // FIX: Safely close old call, keep queue intact
           peerConnectionRef.current = createPeerConnection()
           const offer = await peerConnectionRef.current.createOffer()
           await peerConnectionRef.current.setLocalDescription(offer)
@@ -157,7 +156,7 @@ function App() {
         setMessages((prev) => [...prev, `${data.sender}: ${data.content}`])
       }
       else if (data.type === 'webrtc_offer') {
-        closeVideoCall()
+        closeVideoCall(false) // FIX: Safely close old call, keep queue intact
         peerConnectionRef.current = createPeerConnection()
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer))
         
@@ -194,13 +193,13 @@ function App() {
 
     ws.current.onclose = () => {
       setStatus("Disconnected from server.")
-      closeVideoCall()
+      closeVideoCall(true)
     }
 
     return () => {
       if (ws.current) ws.current.close()
     }
-  }, [cameraReady]) // This array tells React to re-run this when cameraReady changes
+  }, [cameraReady]) 
 
   const sendMessage = () => {
     if (ws.current && inputValue !== '') {
@@ -215,7 +214,7 @@ function App() {
       ws.current.send(JSON.stringify({ type: 'skip' }))
       setMessages([]) 
       setStatus("Skipping... looking for someone new.")
-      closeVideoCall()
+      closeVideoCall(true) // Full wipe on skip
     }
   }
 
