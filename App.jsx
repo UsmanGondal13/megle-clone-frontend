@@ -27,7 +27,7 @@ function App() {
   const [inputValue, setInputValue] = useState('')
   const [status, setStatus] = useState('Allow camera access to connect...')
   const [cameraReady, setCameraReady] = useState(false) 
-  const [debugLogs, setDebugLogs] = useState([]) // NEW: On-screen logger
+  const [debugLogs, setDebugLogs] = useState([]) 
   
   const ws = useRef(null)
   const localVideoRef = useRef(null)
