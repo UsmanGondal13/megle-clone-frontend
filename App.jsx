@@ -27,7 +27,6 @@ function App() {
   const [inputValue, setInputValue] = useState('')
   const [status, setStatus] = useState('Allow camera access to connect...')
   const [cameraReady, setCameraReady] = useState(false) 
-  const [debugLogs, setDebugLogs] = useState([]) 
   
   const ws = useRef(null)
   const localVideoRef = useRef(null)
@@ -36,22 +35,15 @@ function App() {
   const localStreamRef = useRef(null)
   const iceCandidateQueue = useRef([])
 
-  const logDebug = (msg) => {
-    console.log(msg)
-    setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()} - ${msg}`])
-  }
-
   const processCandidateQueue = async () => {
-    logDebug(`Processing queue. Items: ${iceCandidateQueue.current.length}`)
     while (iceCandidateQueue.current.length > 0) {
       const candidate = iceCandidateQueue.current.shift()
       try {
         if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
           await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate))
-          logDebug("Successfully added queued ICE candidate")
         }
       } catch (err) {
-        logDebug(`Error adding queued candidate: ${err.message}`)
+        console.error("Error adding queued ICE candidate:", err)
       }
     }
   }
@@ -59,16 +51,13 @@ function App() {
   useEffect(() => {
     const startCamera = async () => {
       try {
-        logDebug("Requesting camera permissions...")
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         localStreamRef.current = stream
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream
         }
-        logDebug("Camera active. Unlocking server connection.")
         setCameraReady(true) 
       } catch (error) {
-        logDebug(`Camera Error: ${error.message}`)
         setStatus("Camera permission denied. Cannot connect to server.")
       }
     }
@@ -76,25 +65,18 @@ function App() {
   }, [])
 
   const createPeerConnection = () => {
-    logDebug("Creating new RTCPeerConnection...")
     const pc = new RTCPeerConnection(ICE_SERVERS)
     
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current)
       })
-      logDebug("Added local tracks to connection.")
     }
 
     pc.ontrack = (event) => {
-      logDebug(`Received remote track! Kind: ${event.track.kind}`)
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0]
-        remoteVideoRef.current.play().then(() => {
-          logDebug("Remote video playing successfully!")
-        }).catch(error => {
-          logDebug(`Autoplay blocked by browser: ${error.message}`)
-        })
+        remoteVideoRef.current.play().catch(error => console.error("Autoplay blocked:", error))
       }
     }
 
@@ -108,9 +90,8 @@ function App() {
     }
 
     pc.oniceconnectionstatechange = () => {
-      logDebug(`ICE State Changed: ${pc.iceConnectionState}`)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        setStatus("Connected to stranger (Video Live)!")
+        setStatus("Connected to stranger!")
       } else if (pc.iceConnectionState === 'failed') {
         setStatus("Video connection failed. Retrying...")
       }
@@ -123,7 +104,6 @@ function App() {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close()
       peerConnectionRef.current = null
-      logDebug("Closed old peer connection.")
     }
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null
@@ -136,11 +116,9 @@ function App() {
   useEffect(() => {
     if (!cameraReady) return; 
 
-    logDebug("Connecting to matching server...")
     ws.current = new WebSocket('wss://omegle-clone-backend-u5bk.onrender.com/ws')
 
     ws.current.onopen = () => {
-      logDebug("Server connected.")
       setStatus("Connected! Waiting for backend to assign stranger...")
     }
 
@@ -151,12 +129,10 @@ function App() {
         setStatus(data.content)
         
         if (data.content === "Stranger has disconnected.") {
-          logDebug("Stranger disconnected.")
           closeVideoCall(true) 
         }
 
         if (data.role === 'caller') {
-          logDebug("Role assigned: CALLER. Generating offer...")
           closeVideoCall(false) 
           peerConnectionRef.current = createPeerConnection()
           const offer = await peerConnectionRef.current.createOffer()
@@ -166,14 +142,12 @@ function App() {
             type: 'webrtc_offer',
             offer: offer
           }))
-          logDebug("Offer sent to stranger.")
         }
       } 
       else if (data.type === 'chat_message') {
         setMessages((prev) => [...prev, `${data.sender}: ${data.content}`])
       }
       else if (data.type === 'webrtc_offer') {
-        logDebug("Received offer from stranger. Generating answer...")
         closeVideoCall(false) 
         peerConnectionRef.current = createPeerConnection()
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer))
@@ -187,10 +161,8 @@ function App() {
           type: 'webrtc_answer',
           answer: answer
         }))
-        logDebug("Answer sent back.")
       }
       else if (data.type === 'webrtc_answer') {
-        logDebug("Received answer back from stranger.")
         if (peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer))
           await processCandidateQueue()
@@ -201,9 +173,7 @@ function App() {
           if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
             try {
               await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate))
-            } catch (err) {
-              logDebug(`Error adding direct candidate: ${err.message}`)
-            }
+            } catch (err) {}
           } else {
             iceCandidateQueue.current.push(data.candidate)
           }
@@ -212,7 +182,6 @@ function App() {
     }
 
     ws.current.onclose = () => {
-      logDebug("Server disconnected.")
       setStatus("Disconnected from server.")
       closeVideoCall(true)
     }
@@ -240,38 +209,43 @@ function App() {
   }
 
   return (
-    <div style={{ padding: '1rem', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
-      <h1 style={{ textAlign: 'center' }}>Omegle Clone Matchmaker</h1>
-      <h3 style={{ color: 'blue', textAlign: 'center' }}>Status: {status}</h3>
+    <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: '2rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '2.5rem', fontWeight: '800', background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        Global Connect
+      </h1>
+      <p style={{ color: '#94a3b8', marginBottom: '2rem', fontSize: '1.1rem', fontWeight: '500' }}>{status}</p>
       
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: '300px' }}>
-          <h4 style={{ margin: '0 0 10px 0' }}>You</h4>
-          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
+      {/* Video Grid */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '24px', width: '100%', maxWidth: '1000px', marginBottom: '24px' }}>
+        <div style={{ flex: '1 1 300px', maxWidth: '450px', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '12px', left: '12px', background: 'rgba(0,0,0,0.6)', padding: '6px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', zIndex: 10 }}>You</div>
+          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', backgroundColor: '#1e293b', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.4)' }} />
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: '300px' }}>
-          <h4 style={{ margin: '0 0 10px 0' }}>Stranger</h4>
-          <video ref={remoteVideoRef} autoPlay playsInline controls style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', backgroundColor: '#222', borderRadius: '8px' }} />
+        <div style={{ flex: '1 1 300px', maxWidth: '450px', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '12px', left: '12px', background: 'rgba(0,0,0,0.6)', padding: '6px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', zIndex: 10 }}>Stranger</div>
+          <video ref={remoteVideoRef} autoPlay playsInline controls style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', backgroundColor: '#1e293b', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.4)' }} />
         </div>
       </div>
 
-      <div style={{ maxWidth: '620px', margin: '0 auto' }}>
-        <div style={{ border: '1px solid #ccc', padding: '10px', height: '180px', overflowY: 'scroll', marginBottom: '10px' }}>
-          {messages.map((msg, index) => (
-            <p key={index} style={{ margin: '5px 0' }}>{msg}</p>
-          ))}
+      {/* Chat Section */}
+      <div style={{ width: '100%', maxWidth: '924px', backgroundColor: '#1e293b', borderRadius: '16px', padding: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.4)' }}>
+        <div style={{ height: '250px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px', paddingRight: '8px' }}>
+          {messages.map((msg, index) => {
+            const isSystem = msg.startsWith('[System]');
+            const isYou = msg.startsWith('You:');
+            return (
+              <div key={index} style={{ alignSelf: isSystem ? 'center' : (isYou ? 'flex-end' : 'flex-start'), backgroundColor: isSystem ? 'transparent' : (isYou ? '#3b82f6' : '#334155'), color: isSystem ? '#94a3b8' : '#fff', padding: isSystem ? '4px' : '10px 16px', borderRadius: '18px', maxWidth: '75%', fontSize: isSystem ? '0.85rem' : '1rem' }}>
+                {msg.replace(/^(You:|Stranger:|\[System\]:)\s*/, '')}
+              </div>
+            )
+          })}
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
-          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Type a message..." style={{ padding: '8px', flex: '1', minWidth: '150px' }} />
-          <button onClick={sendMessage} style={{ padding: '8px 20px' }}>Send</button>
-          <button onClick={handleSkip} style={{ padding: '8px 20px', backgroundColor: '#ff4444', color: 'white', border: 'none', cursor: 'pointer' }}>Next / Skip</button>
-        </div>
-
-        {/* SYSTEM DIAGNOSTICS LOGGER */}
-        <div style={{ backgroundColor: '#111', color: '#0f0', padding: '10px', fontFamily: 'monospace', fontSize: '12px', height: '200px', overflowY: 'scroll', borderRadius: '4px' }}>
-          <p style={{ margin: 0, fontWeight: 'bold', color: '#fff' }}>--- SYSTEM LOGS ---</p>
-          {debugLogs.map((log, i) => <div key={i}>{log}</div>)}
+        {/* Inputs */}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Type a message..." style={{ flex: '1 1 200px', padding: '14px 20px', borderRadius: '24px', border: 'none', backgroundColor: '#0f172a', color: '#fff', fontSize: '1rem', outline: 'none' }} />
+          <button onClick={sendMessage} style={{ padding: '14px 28px', borderRadius: '24px', border: 'none', backgroundColor: '#3b82f6', color: '#fff', fontWeight: 'bold', cursor: 'pointer', transition: 'background 0.2s' }}>Send</button>
+          <button onClick={handleSkip} style={{ padding: '14px 28px', borderRadius: '24px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontWeight: 'bold', cursor: 'pointer', transition: 'background 0.2s' }}>Next</button>
         </div>
       </div>
     </div>
